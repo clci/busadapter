@@ -24,6 +24,11 @@ RESPONSE_ERROR = 1
 RESPONSE_CMD_UNAVAILABLE = 2
 RESPONSE_WRONG_COMMAND = 3
 RESPONSE_BAD_PARAMETERS = 4
+RESPONSE_SHORT_WRITE = 5
+RESPONSE_NACK_ON_ADDRESS = 6
+RESPONSE_NACK_ON_DATA = 7
+RESPONSE_DATA_TOO_LONG = 8
+RESPONSE_OTHER_ERROR = 9
 
 PIN_MODE_DIGITAL_OUT = 0x01
 PIN_STATUS_HIGH = 0x10
@@ -36,7 +41,20 @@ class Timeout(Exception):
     pass
 
 class BusError(Exception):
-    pass
+
+    def __init__(self, msg):
+
+        if isinstance(msg, int):
+            msg = {
+                RESPONSE_SHORT_WRITE: 'short write',
+                RESPONSE_NACK_ON_ADDRESS: 'nack on address',
+                RESPONSE_NACK_ON_DATA: 'nack on data',
+                RESPONSE_DATA_TOO_LONG: 'data too long for transmit buffer',
+                RESPONSE_OTHER_ERROR: 'other error'
+            }[msg]
+
+        super().__init__(msg)
+
 
 class ProtocolError(Exception):
     pass
@@ -50,6 +68,12 @@ class BusAdapter:
         self.sp.setDTR(False)
         self.sp.setRTS(False)
         time.sleep(0.6)
+
+
+    def close(self):
+
+        self.sp.close()
+        self.sp = None
 
 
     def _send(self, cmd_code, data=b''):
@@ -67,7 +91,7 @@ class BusAdapter:
         while bytes_to_read:
             block = self.sp.read(bytes_to_read)
             if not block:
-                raise BusError(f'short response; got {len(response)} bytes, expected {response_size}')
+                raise BusError(f'short response; got {len(response)} bytes, expected {response_size[0]}')
             response += block
             bytes_to_read -= len(block)
 
@@ -185,4 +209,7 @@ if __name__ == '__main__':
     bus = BusAdapterI2CMaster()
     print(':::', bus.get_version())
     print(':::', bus.debug1())
+    print(':::', bus.set_pin_mode(3, 'digital_out'))
+    print(':::', bus.digital_write(3, True))
+
 

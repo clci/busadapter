@@ -1,6 +1,4 @@
 
-
-
 /* https://www.arduino.cc/reference/en/language/functions/communication/serial/ */
 /* https://www.arduino.cc/en/Reference/Wire */
 /* https://www.arduino.cc/en/Reference/WireSetClock */
@@ -36,16 +34,6 @@ https://store.arduino.cc/arduino-nano-every
 
 #define VERSION_STRING "BUSADAPTER,v=1"
 
-#define LED_ON digitalWrite(LED_BUILTIN, HIGH)
-#define LED_OFF digitalWrite(LED_BUILTIN, LOW)
-#define LED2_ON digitalWrite(2, HIGH)
-#define LED2_OFF digitalWrite(2, LOW)
-#define LED2_TOGGLE digitalWrite(2, digitalRead(2) ? LOW : HIGH)
-#define LED3_ON digitalWrite(3, HIGH)
-#define LED3_OFF digitalWrite(3, LOW)
-#define LED3_TOGGLE digitalWrite(3, digitalRead(3) ? LOW : HIGH)
-
-
 static int debug1 = 0;
 static int debug2 = 0;
 static int debug3 = 0;
@@ -74,7 +62,11 @@ enum message_codes {
 	RESPONSE_CMD_UNAVAILABLE = 2,
 	RESPONSE_WRONG_COMMAND = 3,
 	RESPONSE_BAD_PARAMETERS = 4,
-	RESPONSE_SHORT_WRITE = 5
+	RESPONSE_SHORT_WRITE = 5,
+	RESPONSE_NACK_ON_ADDRESS = 6,
+	RESPONSE_NACK_ON_DATA = 7,
+	RESPONSE_DATA_TOO_LONG = 8,
+	RESPONSE_OTHER_ERROR = 9
 
 };
 typedef byte response_code_t;
@@ -93,7 +85,6 @@ enum pin_constants_t {
 };
 
 #define BUFFER_SIZE 256
-#define DISCARD_TIMEOUT 2000
 
 static mode_code_t work_mode = MODE_UNDEFINED;
 
@@ -167,7 +158,6 @@ void loop() {
 
 	if (command.ready) {
 		/* nobody picked up this command */
-		LED3_TOGGLE;
 		set_message(&response, RESPONSE_WRONG_COMMAND, NULL, 0);
 		reset_command(&command);
 	}
@@ -446,6 +436,7 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 	bool command_executed = true;
 	byte local_buffer[BUFFER_SIZE];
 	int i, count;
+	response_code_t resp_code;
 
 	switch (cmd->code) {
 
@@ -454,18 +445,13 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 			if (cmd->payload_size > 0) {
 
 				Wire.beginTransmission(cmd->payload[0]);
-				i = Wire.write(&cmd->payload[1], cmd->payload_size - 1);
-				Wire.endTransmission();
-
-				if (i == (cmd->payload_size - 1)) {
-					set_message(resp, RESPONSE_OK, NULL, 0);
-				} else {
-					set_message(resp, RESPONSE_SHORT_WRITE, NULL, 0);
-				}
+				Wire.write(&cmd->payload[1], cmd->payload_size - 1);
+				resp_code = end_transmission_to_error_code(Wire.endTransmission());
 
 			} else {
-				set_message(resp, RESPONSE_BAD_PARAMETERS, NULL, 0);
+				resp_code = RESPONSE_BAD_PARAMETERS;
 			}
+			set_message(resp, resp_code, NULL, 0);
 
 		break;
 
@@ -491,10 +477,12 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 			if (cmd->payload_size >= 3) {
 
 				Wire.beginTransmission(cmd->payload[0]);
-				count = Wire.write(&cmd->payload[2], cmd->payload_size - 2);
+				Wire.write(&cmd->payload[2], cmd->payload_size - 2);
+				resp_code = end_transmission_to_error_code(
+					Wire.endTransmission(false)  /* send a restart sequence on the i2c bus */
+				);
 
-				if (count == (cmd->payload_size - 2)) {
-					Wire.endTransmission(false);  /* send a restart sequence on the i2c bus */
+				if (resp_code == RESPONSE_OK) {
 					Wire.requestFrom((int)cmd->payload[0], (int)cmd->payload[1]); /* address, read size */
 					i = 0;
 					while (Wire.available()) {
@@ -502,11 +490,12 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 							local_buffer[i++] = Wire.read();
 						}
 					}
+
 					set_message(resp, RESPONSE_OK, local_buffer, i);
 
 				} else {
 					Wire.endTransmission();
-					set_message(resp, RESPONSE_SHORT_WRITE, NULL, 0);
+					set_message(resp, resp_code, NULL, 0);
 				}
 
 			} else {
@@ -526,6 +515,29 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 
 }
 
+
+response_code_t end_transmission_to_error_code(byte err) {
+
+	switch (err) {
+		case 0:
+			return RESPONSE_OK;
+		break;
+		case 1:
+			return RESPONSE_DATA_TOO_LONG;
+		break;
+		case 2:
+			return RESPONSE_NACK_ON_ADDRESS;
+		break;
+		case 3:
+			return RESPONSE_NACK_ON_DATA;
+		break;
+		case 4:
+		default:
+			return RESPONSE_OTHER_ERROR;
+		break;
+	}
+
+}
 
 /* ********************************************************************** */
 
@@ -579,9 +591,9 @@ void blinking_pause(int ms) {
 
 	for (i = 0; i < ms; ) {
 
-		LED_ON;
+		digitalWrite(LED_BUILTIN, HIGH);
 		delay(30);
-		LED_OFF;
+		digitalWrite(LED_BUILTIN, LOW);
 		delay(30);
 
 		i += 60;
