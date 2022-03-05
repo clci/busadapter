@@ -37,10 +37,13 @@ PIN_STATUS_TOGGLE = 0x12
 
 # --------------------------------------------------------------------------
 
-class Timeout(Exception):
+class Error(Exception):
     pass
 
-class BusError(Exception):
+class Timeout(Error):
+    pass
+
+class BusError(Error):
 
     def __init__(self, msg):
 
@@ -56,7 +59,7 @@ class BusError(Exception):
         super().__init__(msg)
 
 
-class ProtocolError(Exception):
+class ProtocolError(Error):
     pass
 
 
@@ -84,7 +87,7 @@ class BusAdapter:
 
         response_size = self.sp.read(1)
         if not response_size:
-            raise Timeout
+            raise Timeout('timeout while receiving data')
 
         bytes_to_read = response_size[0]
         response = b''
@@ -210,6 +213,13 @@ if __name__ == '__main__':
     print(':::', bus.get_version())
     print(':::', bus.debug1())
     print(':::', bus.set_pin_mode(3, 'digital_out'))
-    print(':::', bus.digital_write(3, True))
+    # print(':::', bus.digital_write(3, True))
+    print(':::', bus.set_pin_mode(2, 'digital_out'))
+    # print(':::', bus.digital_write(2, True))
+    # try:
+    print(':::', bus.write(0x50, b'1'))
+    # except Exception:
+    #     print(':::', bus.debug1())
+    #     raise
 
 
