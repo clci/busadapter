@@ -472,6 +472,8 @@ void serve_mode_i2c_master(command_t *cmd, message_t *resp) {
 				set_message(resp, RESPONSE_BAD_PARAMETERS, NULL, 0);
 			}
 
+		break;
+
 		case CMD_TRANSACTION:
 
 			if (cmd->payload_size >= 3) {
